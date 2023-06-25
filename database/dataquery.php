@@ -1,7 +1,7 @@
 <?php 
 include dirname(__DIR__).'/database/conexion.php';
 include dirname(__DIR__).'/config/config.php';
-
+include dirname(__DIR__).'/database/dataqueryValidation.php';
 class Dataquery extends Conexion{
     public $table;
 	public $campos;
@@ -14,17 +14,18 @@ class Dataquery extends Conexion{
 	private $msj;
 	private $error;
 
-    public function __construct($table,$campos)
+    public function __construct($table,$campos,$id)
 	{
         parent::__construct(LOCALHOST,ROOT,PASSWORD,BASEDATOS);
 		$this->table=$table;
 		$this->campos=$campos;
-
+		$this->id=$id;
+		
 	}	
 	///////////////////////////////////////////
 	///////////////////////////////////////////
 	//metodos que deberían ser estaticas
-	public function all(){//retorna un all de todos los datos de esa tabla
+	public function all() : array {//retorna un all de todos los datos de esa tabla
 		$conexion=$this->DB();
 		$query=$conexion->query(sprintf("SELECT * FROM %s",$this->table));
 		if(!$query){return array('error'=>true,'msj'=>$conexion->error);}
@@ -37,16 +38,13 @@ class Dataquery extends Conexion{
 		$conexion->close();
 		return $respuesta;
 	}
-	public function create($data){
-		//verificación del tipo de dato que pasamos por parametros
-		if(!is_array($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array');}
-		if(!$this->is_assoc($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array asociativo');}
-		//verificación de los campos del modelo
-		foreach($this->campos as $campo){ $this->validarCampos($campo); if($this->error){ return array('error'=>true,'msj'=>sprintf('El campo (%s) del modelo (%s) no está bien declarado en tu array',$campo,$this->table));}}
-		//verificación de la cantidad de datos pasados por parametros con la cantidad de campos del modelo
-		if(count($this->campos) != count($data)){return array('error'=>true,'msj'=>'Faltan campos en tu array o pasaste más campos');}
-		//verificación de los campos indices del array pasado por parametros a esta función con los campos del modelo
-		foreach($this->campos as $campo){if(!array_key_exists($campo,$data)){return array('error'=>true,'msj'=>sprintf('No existe el campo (%s)',$campo));}}
+	public function create($data) : array{
+		$validation= new DataqueryValidation();
+		$rs=$validation->validarData($data);
+		if(!$rs){return array('error'=>$rs,'msj'=>'La data no tiene el formato correcto');}
+		$rs=$validation->validarCampos($data,$this->campos);
+		if(!$rs){return array('error'=>$rs,'msj'=>sprintf('la cantidad de campos o algunos de los nombres de los campos no concuerdan con los del modelo (%s)',$this->table));}
+	
 
 		$datosFormato="";
 		foreach($data as $value){
@@ -66,18 +64,24 @@ class Dataquery extends Conexion{
 		if(!$query){return array('error'=>true,'msj'=>$conexion->error,'sql'=>$sql);}
 		$id=$conexion->insert_id;
 		$conexion->close();
-		return array('error'=>false,'msj'=>sprintf('Registro guardado exitosamente'),"id"=>$id);
+		return array('error'=>false,'msj'=>$sql,$id);
 	}
 
-	public function update($data){
-		//verificación del tipo de dato que pasamos por parametros
-		if(!is_array($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array');}
-		if(!$this->is_assoc($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array asociativo');}
-		//verificación de los campos del modelo
-		foreach($this->campos as $campo){ $this->validarCampos($campo); if($this->error){ return array('error'=>true,'msj'=>sprintf('El campo (%s) del modelo (%s) no está bien declarado en tu array',$campo,$this->table));}}
-		//verificación de los campos indices del array pasado por parametros a esta función con los campos del modelo
-		foreach($this->campos as $campo){if(!array_key_exists($campo,$data)){return array('error'=>true,'msj'=>sprintf('No existe el campo (%s)',$campo));}}
+	public function update($data,$id=null) : array{
+		$validation= new DataqueryValidation();
+		$rs=$validation->validarData($data);
+		if(!$rs){return array('error'=>$rs,'msj'=>'La data no tiene el formato correcto');}
+		$rs=$validation->validarCampo($data,$this->campos);
+		if(!$rs){return array('error'=>$rs,'msj'=>sprintf('los campos en la data no concuerdan con los del modelo (%s)',$this->table));}
 
+		
+
+
+
+		
+
+
+		/*
 		$valores="";
 		$id="";
 		foreach($data as $key => $value){
@@ -93,10 +97,11 @@ class Dataquery extends Conexion{
 		$query=$conexion->query($sql);
 		if(!$query){return array('error'=>true,'msj'=>$conexion->error,'sql'=>$sql);}
 		$conexion->close();
-		return array('error'=>false,'msj'=>sprintf('Registro Actualizado exitosamente')); 
+		return array('error'=>false,'msj'=>sprintf('Registro Actualizado exitosamente')); */
+		return array('error'=>false, 'msj'=>'todo bien');
 	}
 
-	public function delete($data){
+	public function delete($data) : array{
 		//verificación del tipo de dato que pasamos por parametros
 		if(!is_array($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array');}
 		if(!$this->is_assoc($data)){return array('error'=>true,'msj'=>'El parametro pasado no es de tipo array asociativo');}
@@ -115,52 +120,6 @@ class Dataquery extends Conexion{
 		$conexion->close();
 
 		return array('error'=>false,'msj'=>'Registro eliminado exitosamente'); 
-	}
-	///////////////////////////////////////////
-	///////////////////////////////////////////
-	//metodos de uso interno para validar campos, arrays, operadores
-	private function is_assoc($array)
-	{
-			return is_array($array) && array_diff_key($array,array_keys(array_keys($array)));
-	}
-	private function validarCampos($campo){
-			$conexion=$this->DB();
-			$query=$conexion->query(sprintf("SHOW COLUMNS FROM %s",$this->table));
-			$error=true;
-
-			while($row=$query->fetch_assoc()){
-				if($row['Field']==$campo){
-					$error=false;
-				}		
-			}
-			$this->error=$error;
-	}
-	public function validarOperador($operador){
-		$error=true;		
-		switch($operador){
-			case "=":
-				$error=false;
-				break;
-			case "<":
-				$error=false;
-				break;
-			case ">":
-				$error=false;
-				break;
-			case ">=":
-				$error=false;
-				break;
-			case "<=":
-				$error=false;
-				break;
-			case "<>":
-				$error=false;
-				break;
-			case "LIKE":
-				$error=false;
-				break;
-		}
-		$this->error=$error;
 	}
 	///////////////////////////////////////////
 	///////////////////////////////////////////
@@ -186,7 +145,7 @@ class Dataquery extends Conexion{
 
 		$this->sql=$sql;
 	}
-	public function where($campo, $operador, $criterio){
+	public function where($campo, $operador, $criterio) : string{
 		//formato de los valores
 		$campoFormato=trim($campo);
 		$operadorFormato=strtoupper(trim($operador));
@@ -211,7 +170,7 @@ class Dataquery extends Conexion{
 
 		return $this->sql;
 	}
-	public function get(){
+	public function get() : array{
 		//verifica que no exista algun error activo por algun where o select
 		if($this->error){return array('error'=>true,'msj'=>$this->msj);}
 		//fin de verificación de error
