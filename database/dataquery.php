@@ -3,10 +3,11 @@ include dirname(__DIR__).'/database/conexion.php';
 include dirname(__DIR__).'/config/config.php';
 include dirname(__DIR__).'/database/dataqueryValidation.php';
 class Dataquery extends Conexion{
+	//atributos de la tabla
     public $table;
 	public $campos;
 	public $id;
-
+	//atributos de la consulta
 	private $select="SELECT *";
 	private $from="FROM ";
 	private $where;
@@ -40,12 +41,9 @@ class Dataquery extends Conexion{
 	}
 	public function create($data) : array{
 		$validation= new DataqueryValidation();
-		$rs=$validation->validarData($data);
-		if(!$rs){return array('error'=>$rs,'msj'=>'La data no tiene el formato correcto');}
-		$rs=$validation->validarCampos($data,$this->campos);
-		if(!$rs){return array('error'=>$rs,'msj'=>sprintf('la cantidad de campos o algunos de los nombres de los campos no concuerdan con los del modelo (%s)',$this->table));}
+		if(!$validation->validar_data_formato($data)){return array('error'=>$rs,'msj'=>'La data pasada por parametros no tiene el formato de array asociativo');}
+		if(!$validation->validar_campos($data,$this->campos)){return array('error'=>$rs,'msj'=>sprintf('la cantidad de campos o algunos de los nombres de los campos no concuerdan con los del modelo (%s)',$this->table));}
 	
-
 		$datosFormato="";
 		foreach($data as $value){
 			$datosFormato.="'".$value."',";
@@ -64,41 +62,31 @@ class Dataquery extends Conexion{
 		if(!$query){return array('error'=>true,'msj'=>$conexion->error,'sql'=>$sql);}
 		$id=$conexion->insert_id;
 		$conexion->close();
-		return array('error'=>false,'msj'=>$sql,$id);
+		return array('error'=>false,'msj'=>$sql,'id'=>$id);
 	}
 
 	public function update($data,$id=null) : array{
-		$validation= new DataqueryValidation();
-		$rs=$validation->validarData($data);
-		if(!$rs){return array('error'=>$rs,'msj'=>'La data no tiene el formato correcto');}
-		$rs=$validation->validarCampo($data,$this->campos);
-		if(!$rs){return array('error'=>$rs,'msj'=>sprintf('los campos en la data no concuerdan con los del modelo (%s)',$this->table));}
-
+		//verificacion de los datos pasados por parametros
+		$validacion= new DataqueryValidation();
+		if(!$validacion->validar_data_formato($data)){return array('error'=>$rs,'msj'=>'La data no tiene el formato correcto');}
+		if(!$validacion->coincidencia_campos_nombres($data,$this->campos)){return array('error'=>$rs,'msj'=>sprintf('los campos en la data no concuerdan con los del modelo (%s)',$this->table));}
 		
-
-
-
-		
-
-
-		/*
+		//contrucción de la consulta
 		$valores="";
-		$id="";
+		
 		foreach($data as $key => $value){
 			if($key != 'id'){
 				$valores.="`".$key."`"."="."'".$value."'".",";
-			}else{
-				$id=sprintf("`%s`='%s'",$key,$value);
 			}
 		}
+		$id=sprintf("`%s`='%s'",$this->id,$id);
 		$valores=rtrim($valores,',');
 		$conexion=$this->DB();
 		$sql=sprintf("UPDATE %s SET %s WHERE %s",$this->table,$valores,$id);
 		$query=$conexion->query($sql);
 		if(!$query){return array('error'=>true,'msj'=>$conexion->error,'sql'=>$sql);}
 		$conexion->close();
-		return array('error'=>false,'msj'=>sprintf('Registro Actualizado exitosamente')); */
-		return array('error'=>false, 'msj'=>'todo bien');
+		return array('error'=>false,'msj'=>sprintf('Registro Actualizado exitosamente'));
 	}
 
 	public function delete($data) : array{
@@ -123,19 +111,18 @@ class Dataquery extends Conexion{
 	}
 	///////////////////////////////////////////
 	///////////////////////////////////////////
-	//medotos para la construcción de consultas
-	public function select($campos){
-		//verificación de parametros y campos
-		if(!is_array($campos)){$this->error=true; return $this->msj=sprintf("El parametro pasado no es de tipo array");}
-		/*foreach($campos as $campo){
-			$error=$this->validarCampos($campo);
-			if($error){return $this->msj=sprintf("No existe un campo (%s) con ese nombre",$campo);}
-		}*/
-		//fin verificación de parametros y campos
+	//metodos para la construcción de consultas
+	public function select($data) : string{
 
+		//verificación de parametros y campos en base de datos
+		$validacion=new DataqueryValidation;
+		if(!$validacion->is_Array($data)){$this->error=true; return $this->msj=sprintf("El parametro pasado no es de tipo array");}
+		if(!$validacion->coincidencia_campos_nombres($data,$this->campos)){$this->error=true; return $this->msj=sprintf("Alguno de los campos en la data  no coincide con los campos de la tabla ".$this->table);}
+		
+		//construcción de la consulta
 		$select=""	;
 		$select.="SELECT";
-		foreach($campos as $campo){
+		foreach($data as $campo){
 			$select.=sprintf(" %s,",$campo);
 		}
 		$selectFormato=trim($select,',');
@@ -144,31 +131,29 @@ class Dataquery extends Conexion{
 		$sql=sprintf("%s %s",$this->select,$this->from);
 
 		$this->sql=$sql;
-	}
-	public function where($campo, $operador, $criterio) : string{
-		//formato de los valores
-		$campoFormato=trim($campo);
-		$operadorFormato=strtoupper(trim($operador));
-		//fin del formato de los valores
 
+		return $sql;//retornamos la consulta a modo de debug
+	}
+	public function where($data, $operador, $criterio) : string{
+		
 		//verificación de campos, operadores o errores
 		if($this->error){return $this->msj;}
-		$error=$this->validarCampos($campoFormato);
-		if($error){return $this->msj=sprintf("No existe un campo (%s) con ese nombre",$campoFormato);}
-		$error=$this->validarOperador($operadorFormato);
-		if($error){return $this->msj=sprintf("No existe ese tipo de operador (%s) de comparación",$operadorFormato);}
-		//fin verificación de campos y operadores
+		$validacion=new DataqueryValidation;
+		if(!$validacion->coincidencia_campos_nombres($data,$this->campos)){$this->error=true; return $this->msj=sprintf("El parametro pasado (%s) no concueda con alguno de los campos del modelo (%s)",$data,$this->table);}
+		if(!$validacion->validar_sql_operador($operador)){$this->error=true; return $this->msj=sprintf("No existe ese tipo de operador de comparación sql");}
 
-
+		//estructura de la consulta
 		if(strlen($this->where) > 0){
-			$this->where.=sprintf("AND %s %s'%s'",$campo,$operador,$criterio);
+			$this->where.=sprintf("AND %s %s'%s'",$data,$operador,$criterio);
 		}else{
-			$this->where=sprintf("WHERE %s %s'%s'",$campo,$operador,$criterio);
+			$this->where=sprintf("WHERE %s %s'%s'",$data,$operador,$criterio);
 		}	
 		$this->from="FROM ";
-		$this->sql=sprintf("%s %s %s %s",$this->select,$this->from,$this->table,$this->where);
+		$sql=sprintf("%s %s %s %s",$this->select,$this->from,$this->table,$this->where);
+		$this->sql=$sql;
 
-		return $this->sql;
+		return $sql;//retornamos la consulta a modo de debug
+
 	}
 	public function get() : array{
 		//verifica que no exista algun error activo por algun where o select
